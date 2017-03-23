@@ -16,15 +16,20 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.text.ParseException;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 
-public class WorkerThread implements Runnable {
+public class WorkerRunnable implements Runnable, Config {
+	public static Timestamp uptodate = null;
 	private BlockingQueue<Task> queue = null;
 	// private FileOutputStream fop = null;
 	// private File file;
@@ -32,15 +37,33 @@ public class WorkerThread implements Runnable {
 	private Map<Timestamp, HashSet<Long>> map = null;
 	// private File changedDataRecordCSvFile = null;
 	// private PrintWriter changedDataRecordFileWriter = null;
-	private long totalWaitTime = 0L;
+	private Long totalWaitTime = 0L;
 	private int threadID = 0;
-	private long sessionNextTimeStamp =0;
-	private long sessionEndTime=0L;
-	
-	public WorkerThread(int threadID, BlockingQueue<Task> queue, long sessionEndTime) {
+	private long sessionNextTimeStamp = 0;
+	private long sessionEndTime = 0L;
+	private long taskCount = 0L;
+	private long taskCountPerMinute = 0L;
+	private long rowCountPerMinute = 0L;
+	private long averageRowCountPerMinute = 0L;
+	private long rowCount = 0L;
+	private long averageRowCount = 0L;
+	private CoordinatorRunnable parent = null;
+	private long taskProcessingTime = 0L;
+
+	public WorkerRunnable(int threadID, BlockingQueue<Task> queue, long sessionEndTime, CoordinatorRunnable parent) {
+		this.parent = parent;
 		this.queue = queue;
 		this.sessionEndTime = sessionEndTime;
 		this.map = new HashMap<Timestamp, HashSet<Long>>();
+		Date date = null;
+		try {
+			date = dateFormat.parse("2010-10-10-10-10-10");
+		} catch (ParseException e1) {
+			e1.printStackTrace();
+		}
+		long time = date.getTime();
+			
+		uptodate = new Timestamp(time);
 
 		// file = new File(fileName);
 		// try {
@@ -54,7 +77,7 @@ public class WorkerThread implements Runnable {
 		// } catch (IOException e) {
 		// e.printStackTrace();
 		// }
-		String fileName = "chunk"+threadID;
+		String fileName = "chunk" + threadID;
 		try {
 			out = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(fileName, true), "UTF-8"));
 		} catch (UnsupportedEncodingException | FileNotFoundException e) {
@@ -69,27 +92,43 @@ public class WorkerThread implements Runnable {
 		Set<Long> ids = new HashSet<Long>();
 		Connection conn = Client.getConnection();
 		PreparedStatement stmt = null;
+		PreparedStatement countStmt = null;
 		ResultSet rs = null;
 		try {
-			stmt = conn.prepareStatement("select * from audit.logged_actions where event_id > ? and event_id <= ?");
+			String query = "select * from audit.logged_actions " + "where event_id > ? and event_id <= ? "
+					+ "and table_name in (" + tables.get(System.getProperty("tables")) + ")";
+			stmt = conn.prepareStatement(query);
 		} catch (SQLException e1) {
 			e1.printStackTrace();
 		}
 
 		try {
+
 			long threadStartTime = System.nanoTime();
 			long sessionStartTime = System.currentTimeMillis();
-			sessionNextTimeStamp = System.currentTimeMillis()+60000;
-			while (sessionEndTime>System.currentTimeMillis()) {
+			sessionNextTimeStamp = System.currentTimeMillis() + 60000;
+			while (sessionEndTime > System.currentTimeMillis()) {
 				long startWaitTime = System.nanoTime();
+				long startWaitTimeMili = System.currentTimeMillis();
 				Task task = queue.take();
-				totalWaitTime += System.nanoTime()-startWaitTime;
+
+				// Total weight time
+				totalWaitTime = totalWaitTime + (System.nanoTime() - startWaitTime);
+
+				// keep track of task
+				taskCount++;
+				taskCountPerMinute++;
+
 				stmt.setLong(1, task.getMinSeqID());
 				stmt.setLong(2, task.getMaxSeqID());
 				rs = stmt.executeQuery();
 				ids.clear();
 
 				while (rs.next()) {
+					// keep track of number of rows
+					rowCountPerMinute++;
+					rowCount++;
+
 					// write to a file
 					writeLocalFile(rs);
 
@@ -108,23 +147,53 @@ public class WorkerThread implements Runnable {
 						map.put(t, set);
 					}
 				}
-				if(sessionNextTimeStamp< System.currentTimeMillis()){
-					System.out.println("Thread-"+threadID+" sleep time: "+totalWaitTime);
-					sessionNextTimeStamp +=60000;
+				Timestamp tmp = Collections.max(map.keySet());
+				synchronized(uptodate) {
+					if(uptodate == null || uptodate.before(tmp)) {
+						uptodate = tmp;
+					}
+				}
+				
+				// keep track of task processing time
+				taskProcessingTime = (System.currentTimeMillis() - startWaitTimeMili);
+				parent.writeTaskProcessingTime(taskCount, taskProcessingTime, threadID);
+				
+				
+				if (sessionNextTimeStamp < System.currentTimeMillis()) {
+					// Total weight time
+					long duration = TimeUnit.SECONDS.convert(totalWaitTime, TimeUnit.NANOSECONDS);
+					System.out.println("Thread-" + threadID + " Weight time: " + duration);
+					parent.writeLog("Thread-" + threadID + " Weight time: " + duration + " seconds");
+
+					// average row count
+					averageRowCount = rowCount / taskCount;
+					averageRowCountPerMinute = rowCountPerMinute / taskCountPerMinute;
+
+					parent.writeLog("Thread-" + threadID + " Number Of Task within a minute: " + taskCountPerMinute);
+					parent.writeLog("Thread-" + threadID + " Total Number Of Task : " + taskCount);
+					parent.writeLog("Thread-" + threadID + " Total Row count : " + rowCount);
+					parent.writeLog("Thread-" + threadID + " Average row count perminute: " + averageRowCountPerMinute);
+					parent.writeLog("Thread-" + threadID + " Total Average row count : " + averageRowCount);
+
+					//
+
+					sessionNextTimeStamp += 60000;
+					taskCountPerMinute = 0L;
+					rowCountPerMinute = 0L;
 				}
 			}
-			System.out.println("thread exit: "+ threadID);
+			System.out.println("thread exit: " + threadID);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		} catch (SQLException e) {
 			e.printStackTrace();
 		} finally {
 			try {
-				if(rs!=null)
+				if (rs != null)
 					rs.close();
-				if(stmt!=null)
+				if (stmt != null)
 					stmt.close();
-				if(conn!=null)
+				if (conn != null)
 					conn.close();
 				out.close();
 			} catch (SQLException | IOException e) {
@@ -135,56 +204,11 @@ public class WorkerThread implements Runnable {
 	}
 
 	private void writeLocalFile(ResultSet rs) {
-		// try {
-		// ResultSetMetaData resultSetMetaData = rs.getMetaData();
-		// int numberOfColumns = resultSetMetaData.getColumnCount();
-		// StringBuilder rowStringBuilder = new StringBuilder();
-		// for (int i = 1; i <= numberOfColumns; i++) {
-		// rowStringBuilder.append(rs.getString(i));
-		// rowStringBuilder.append("§");
-		// }
-		//
-		// if (rowStringBuilder.length() > 0)
-		// rowStringBuilder.setLength(rowStringBuilder.length() - 1);
-		//
-		// changedDataRecordFileWriter.println(rowStringBuilder);
-		// } catch (SQLException e) {
-		// // TODO Auto-generated catch block
-		// e.printStackTrace();
-		// }
-		// try {
-		//
-		//
-		// Path file = Paths.get(fileName);
-		// Files.write(file, lines, Charset.forName("UTF-8"));
-		// } catch (IOException e) {
-		// e.printStackTrace();
-		// } catch (SQLException e1) {
-		// e1.printStackTrace();
-		// }
-		// List<String> lines = Arrays.asList(
-		// rs.getString(1),
-		// rs.getString(2),
-		// rs.getString(3),
-		// rs.getString(4),
-		// rs.getString(5),
-		// rs.getString(6),
-		// rs.getString(7),
-		// rs.getString(8),
-		// rs.getString(9),
-		// rs.getString(10),
-		// rs.getString(11),
-		// rs.getString(12),
-		// rs.getString(13),
-		// rs.getString(14),
-		// rs.getString(15),
-		// rs.getString(16),
-		// rs.getString(17)
-		// );
+
 		try {
 			StringBuffer sb = new StringBuffer();
 			for (int i = 1; i < 18; i++) {
-				sb.append(rs.getString(i)+"|");
+				sb.append(rs.getString(i) + "|");
 			}
 			sb.append("\n");
 			out.append(sb.toString());

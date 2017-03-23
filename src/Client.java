@@ -17,13 +17,16 @@ public class Client {
 		BlockingQueue<Task> queue = new ArrayBlockingQueue<Task>(10000);
 		
 //		create a coordinator thread
-		CoordinatorThread coordinator = new CoordinatorThread(queue,sessionEndTime);
+		CoordinatorRunnable coordinator = new CoordinatorRunnable(queue,sessionEndTime);
 		threads.add(new Thread(coordinator));
 		
 //		create a number of worker thread to read updates
 		for(int i=0; i<numThread; i++){
-			threads.add(new Thread(new WorkerThread(i, queue,sessionEndTime)));
+			threads.add(new Thread(new WorkerRunnable(i, queue,sessionEndTime,coordinator)));
 		}
+		
+		QueryRequestRunnable queryRequestRunnable = new QueryRequestRunnable();
+		threads.add(new Thread(queryRequestRunnable));
 		
 		for(int i=0; i<threads.size(); i++){
 			threads.get(i).start();
