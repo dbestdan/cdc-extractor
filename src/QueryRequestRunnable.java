@@ -11,6 +11,8 @@ import java.util.Date;
 public class QueryRequestRunnable implements Runnable,Config{
 	private Writer out;
 	private long sessionNextTimeStamp = 0L;
+	private long totalStaleness =0L;
+	private long count = 0L;
 
 	public QueryRequestRunnable() {
 		
@@ -28,10 +30,12 @@ public class QueryRequestRunnable implements Runnable,Config{
 	public void run() {
 		sessionNextTimeStamp = System.currentTimeMillis()+60000;
 		while(true) {
-			
+			count++;
 			try {
 				long staleness = System.currentTimeMillis() - WorkerRunnable.uptodate.getTime();
-				out.append((System.currentTimeMillis() - CoordinatorRunnable.sessionStartTime) +","+ staleness+"\n");
+				totalStaleness += staleness;
+				long avgStaleness = totalStaleness/ count;
+				out.append((System.currentTimeMillis() - CoordinatorRunnable.sessionStartTime) +","+avgStaleness+","+ staleness+"\n");
 				if(System.currentTimeMillis()>sessionNextTimeStamp) {
 					sessionNextTimeStamp +=60000;
 					out.flush();

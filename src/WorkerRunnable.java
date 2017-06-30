@@ -49,21 +49,16 @@ public class WorkerRunnable implements Runnable, Config {
 	private long averageRowCount = 0L;
 	private CoordinatorRunnable parent = null;
 	private long taskProcessingTime = 0L;
+	private long totalTaskProcessingTime = 0L;
 
 	public WorkerRunnable(int threadID, BlockingQueue<Task> queue, long sessionEndTime, CoordinatorRunnable parent) {
 		this.parent = parent;
 		this.queue = queue;
 		this.sessionEndTime = sessionEndTime;
 		this.map = new HashMap<Timestamp, HashSet<Long>>();
-		Date date = null;
-		try {
-			date = dateFormat.parse("2010-10-10-10-10-10");
-		} catch (ParseException e1) {
-			e1.printStackTrace();
-		}
-		long time = date.getTime();
+		
 			
-		uptodate = new Timestamp(time);
+		uptodate = new Timestamp(System.currentTimeMillis());
 
 		// file = new File(fileName);
 		// try {
@@ -156,6 +151,7 @@ public class WorkerRunnable implements Runnable, Config {
 				
 				// keep track of task processing time
 				taskProcessingTime = (System.currentTimeMillis() - startWaitTimeMili);
+				totalTaskProcessingTime += taskProcessingTime;
 				parent.writeTaskProcessingTime(taskCount, taskProcessingTime, threadID);
 				
 				
