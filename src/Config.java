@@ -16,14 +16,14 @@ public interface Config {
 								+ "'bmsql_order_line'"
 								+ "'bmsql_stock'");
 					put("first","'bmsql_customer',"
-								+ "'bmsql_warehouse', "
-								+ "'bmsql_district', "
-								+ "'bmsql_history',"
-								+ "'bmsql_item',"
-								+ "'bmsql_new_order',"
-								+ "'bmsql_oorder',"
-								+ "'bmsql_stock'");
-					put("second","'bmsql_order_line'");
+							+ "'bmsql_warehouse', "
+							+ "'bmsql_district', "
+							+ "'bmsql_history',"
+							+ "'bmsql_item',"
+							+ "'bmsql_new_order',"
+							+ "'bmsql_oorder'");
+				put("second","'bmsql_order_line'");
+				put("third", "'bmsql_stock'");
 	}};
 	/**
 	 * 	public  String[] all = {"bmsql_customer", 

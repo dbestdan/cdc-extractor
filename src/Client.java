@@ -51,11 +51,11 @@ public class Client {
 	public static Connection getConnection(){
 		Connection conn = null;
 		Properties connectionProps = new Properties();
-		connectionProps.put("user", "postgres");
-		connectionProps.put("password", "postgres");
+		connectionProps.put("user", "benchmarksql");
+		connectionProps.put("password", "benchmarksql");
 		try {
 			Class.forName("org.postgresql.Driver");
-			conn = DriverManager.getConnection("jdbc:postgresql://hnode3:5432/benchmarksql", connectionProps);
+			conn = DriverManager.getConnection("jdbc:postgresql://pcnode2:5432/benchmarksql", connectionProps);
 		} catch (ClassNotFoundException e) {
 			e.printStackTrace();
 		} catch (SQLException e) {
